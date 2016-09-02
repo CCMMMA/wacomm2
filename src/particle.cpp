@@ -7,36 +7,75 @@
 #include <boost/random/linear_congruential.hpp>
 #include <boost/random/uniform_01.hpp>
 
-Particle::Particle(int id, float i, float j, float k) {
+using namespace std;
+
+double mod(double a, double p) { return a-p*(int)(a/p); }
+double sign(double a, double b) { return abs(a)*sgn(b); }
+
+Particle::Particle(int id, float i, float j, float k, float tau0, float survprob) {
+    health0=1.0f;
+    this->tau0=tau0;
+
     this->id=id;
     this->i=i;
     this->j=j;
     this->k=k;
-    health=1;
+    health=1.0f;
     time=0;
     pstatus=1.0f;
-    survprob=1.0f;
+    this->survprob=survprob;
+
+
 };
 
 float Particle::getI() { return i; }
 float Particle::getJ() { return j; }
 float Particle::getK() { return k; }
 int Particle::getTime() { return time; }
-int Particle::getHealth() { return health; }
+float Particle::getHealth() { return health; }
 float Particle::getPStatus() { return pstatus; }
 
-void Particle::move(float3d u, float3d v, float3d w, float3d akt,double2d mask_u, double2d mask_v, double2d mask_rho, float conc,float2d zeta,double2d s_w,double2d s_rho,double2d lon_u,double2d lat_v,double dti, double deltat) {
+void Particle::write(std::ofstream& myfile) {
+    if (health>=health0) {
+        myfile << id << ";" << k << ";" << j << ";" << i << ";" << health << endl;;
+    }
+}
+
+void Particle::count(double2d mask_rho, float3d conc) {
+    if(health > survprob) {
+        int iI=(int)i; 
+        int jI=(int)j; 
+        int kI=(int)k; 
+
+ 	if ( mask_rho[jI][iI] > 0.0 ) {
+ 	    conc[kI][jI][iI]=conc[kI][jI][iI]+1.0;
+ 	} else {
+ 	    health=-2.0;
+ 	}
+    } else {
+        health=-2.0;
+    }
+}
+
+void Particle::move(float3d u, float3d v, float3d w, float3d akt,double2d mask_u, double2d mask_v, double2d mask_rho, float3d conc,float2d zeta,double1d s_w,double1d s_rho,double2d lon_u,double2d lat_v,double dti, double deltat) {
+
     boost::minstd_rand intgen;
     boost::uniform_01<boost::minstd_rand> gen(intgen);
 
-    unsigned int wdims=u.shape()[0];
+    //unsigned int wdims=u.shape()[0];
     float idet=0,jdet=0,kdet=0;
     float crid=1;
+
+    double *_depth=new double[w.shape()[0]+1];
+    for (unsigned int a=1;a<w.shape()[0]+1;a++) {
+        _depth[a]=s_w[a]-s_w[a-1];
+    }
+    double1d depth(_depth,boost::extents[w.shape()[0]+1]);
 
     float vs=0;
     double iint=deltat/dti;
     double t=0;
-    printf ("Steps:%f\n",iint);
+    
     for (unsigned t=0;t<iint;t++) {
         if (health<survprob) {
             pstatus=0;
@@ -78,9 +117,9 @@ void Particle::move(float3d u, float3d v, float3d w, float3d akt,double2d mask_u
         float jleap=vv*dti;
         float kleap=(vs+ww)*dti;
 
-        double sigmaprof=3.46*(1+kdet/wdims);
+        double sigmaprof=3.46*(1+kdet/w.shape()[0]);
         double gi=0,gj=0,gk=0;
-        for (int i=0;i<12;i++) {
+        for (int a=0;a<12;a++) {
             gi=gi+gen()-0.5;
             gj=gj+gen()-0.5;
             gk=gk+gen()-0.5;
@@ -104,12 +143,54 @@ void Particle::move(float3d u, float3d v, float3d w, float3d akt,double2d mask_u
         jleap=jleap+rjleap;
         kleap=kleap+rkleap;
 
-        double d1=(lat_v[jI+1][iI]-lat_v[jI][iI]);
-        double d2=(lon_u[jI][iI+1]-lon_u[jI][iI]);
+        double d1,d2,dist;
+
+        d1=(lat_v[jI+1][iI]-lat_v[jI][iI]);
+        d2=(lon_u[jI][iI+1]-lon_u[jI][iI]);
         d1=pow(sin(0.5*d1),2) + pow(sin(0.5*d2),2)* cos(lat_v[jI+1][iI])*cos(lat_v[jI][iI]);
-        double dist=2.0*atan2(pow(d1,.5),pow(1.0-d1,.5))*6371.0;
-        idet=i+0.001*ileap/dist
+        dist=2.0*atan2(pow(d1,.5),pow(1.0-d1,.5))*6371.0;
+        idet=i+0.001*ileap/dist;
 
+        d1=(lat_v[jI+1][iI]-lat_v[jI][iI]);
+ 	d2=(lon_u[jI][iI+1]-lon_u[jI][iI]);
+ 	d1=pow(sin(0.5*d1),2) + pow(sin(0.5*d2),2)* cos(lat_v[jI+1][iI])*cos(lat_v[jI][iI]);
+ 	dist=2.0*atan2(sqrt(d1),pow(1.0-d1,.5))*6371.0;
+ 	jdet=j+0.001*jleap/dist;
 
+ 	dist=depth[kI]*zeta[jI][iI];
+ 	if ( abs(kleap) > abs(dist) ) {
+            kleap=sign(dist,kleap);
+        }
+ 	kdet=k+kleap/dist;
+
+        if ( kdet < -w.shape()[0]+2 ) {
+            kdet=2.0*(-w.shape()[0]+2)-kdet;
+        }
+ 	if ( kdet > 0. ) {
+            kdet=-kdet;
+        }
+
+        int jdetI=(int)jdet;
+        int idetI=(int)idet;
+        if ( mask_rho[jdetI][idetI] <= 0.0 ) {
+ 	    if ( idetI < iI ) {
+ 	        idet=(float)iI + abs(i-idet);
+ 	    } else if ( idetI > iI ) {
+ 		idet=(float)idetI- mod(idet,1.0);
+ 	    }
+ 	    if ( jdetI < jdet ) {
+ 	        jdet=(float)jdetI+ abs(j-jdet);
+ 	    } else if ( jdetI > jI ) {
+ 		jdet=(float)jdetI - mod(jdet,1.0);
+ 	    }
+ 	}
+
+        i=idet;
+        j=jdet;
+        k=kdet;
+
+        time=time+dti;
+        health=health0*exp(-time/tau0);
     }
 }
+
