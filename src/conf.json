@@ -1,0 +1,32 @@
+{
+  "nc_input" : "/home/montella/wacomm2/data/rms3_d04_20160830Z0000_120h.nc",
+  "nc_output_root" : "wacomm_his_",
+  "sources" : [
+    { "id":1,"i":98,"j":337,"k":0,"partsPerHour":100 },
+    { "id":2,"i":111,"j":331,"k":0,"partsPerHour":100 },
+    { "id":3,"i":111,"j":327,"k":0,"partsPerHour":100 },
+    { "id":4,"i":113,"j":325,"k":0,"partsPerHour":100 }
+  ],
+  "chm": {
+    "tau0":86400.0,
+    "survprob":1.0e-4
+  },
+
+  "rst": {
+    "restart": false,
+    "restartfile" :  "WACOM_rst20150620Z00.txt",
+    "interval":86400.0
+  },
+
+  "hst": {
+    "history":true,
+    "historyfile":"WACOMM_rst",
+    "inithsttime":"20160830Z00",
+    "outfreq":3600.0
+  },
+
+  "omp": {
+    "ninterp":4,
+    "ncalc":20
+  }
+}
