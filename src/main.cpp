@@ -20,6 +20,7 @@ using namespace netCDF::exceptions;
 static const int NC_ERR = 2;
 
 int main() {
+
     double dti=30;
 
     vector<Source*> sources;
@@ -56,7 +57,11 @@ int main() {
         sources.push_back(source);
         printf ("Source: %d\n",id);
     }
-   
+
+    const Json::Value chm = root["chm"];
+    float tau0=chm.get("tau0",86400.0).asFloat();
+    float survprob=chm.get("survprob",1.0e-4).asFloat();
+    printf ("Input:%s\n",nc_input.c_str());
 
 
     // Open the file for read access
@@ -75,6 +80,8 @@ int main() {
     int xi_rho     = dataFile.getDim("xi_rho").getSize();
 
     double *_ocean_time=new double[ocean_time];
+    double *_s_w=new double[s_w];
+    double *_s_rho=new double[s_rho];
     double *_lat_u=new double[eta_u*xi_u];
     double *_lon_u=new double[eta_u*xi_u];
     double *_lat_v=new double[eta_v*xi_v];
@@ -85,6 +92,14 @@ int main() {
     NcVar dataOceanTime=dataFile.getVar("ocean_time");
     dataOceanTime.getVar(_ocean_time);
     double1d oceanTime(_ocean_time, boost::extents[ocean_time]);
+
+    NcVar dataSw=dataFile.getVar("s_w");
+    dataSw.getVar(_s_w);
+    double1d sW(_s_w, boost::extents[s_w]);
+
+    NcVar dataSRho=dataFile.getVar("s_rho");
+    dataSRho.getVar(_s_rho);
+    double1d sRho(_s_rho, boost::extents[s_rho]);
 
     NcVar dataLatU=dataFile.getVar("lat_u");
     dataLatU.getVar(_lat_u);
@@ -148,7 +163,7 @@ int main() {
     float *_akt=new float[s_w*eta_rho*xi_rho];
 
     float *_conc=new float[s_rho*eta_rho*xi_rho];
-    float2d conc(_conc, boost::extents[s_rho][eta_rho][xi_rho]);
+    float3d conc(_conc, boost::extents[s_rho][eta_rho][xi_rho]);
 
     vector<size_t> countp_zeta,countp_u,countp_v,countp_w,countp_akt;
     countp_zeta.push_back(1);
@@ -176,6 +191,14 @@ int main() {
 
     double deltat=oceanTime[1]-oceanTime[0];
 
+    // lon_u, lat_v in radiants
+    for (unsigned int j=0; j<lon_u.shape()[0];j++)
+        for (unsigned int i=0;i<lon_u.shape()[1];i++)
+            lon_u[j][i]=0.0174533*lon_u[j][i];
+    for (unsigned int j=0; j<lat_v.shape()[0];j++)
+        for (unsigned int i=0;i<lat_v.shape()[1];i++)
+             lat_v[j][i]=0.0174533*lat_v[j][i];
+
     for (unsigned int t=0;t<ocean_time;t++) {
         printf ("Time: %d/%d\n",(t+1),ocean_time);
 
@@ -183,7 +206,7 @@ int main() {
         for(unsigned int s=0;s<sources.size();s++) {
             Source *source=sources[s];
             for (unsigned int p=0;p<source->getPartsPerHour();p++) {
-                Particle *particle=new Particle(particleCount,source->getI(),source->getJ(),source->getK());
+                Particle *particle=new Particle(particleCount,source->getI(),source->getJ(),source->getK(),tau0,survprob);
                 particles.push_back(particle);
                 particleCount++;
             }
@@ -214,17 +237,27 @@ int main() {
 
         for (unsigned int p=0;p<particles.size();p++) {
             Particle *particle=particles[p];
-            particle->move(u,v,w,akt,mask_u,mask_v,mask_rho,conc,zeta,s_w,s_rho,lon_u,lat_v,dti,deltat);
+            particle->move(u,v,w,akt,mask_u,mask_v,mask_rho,conc,zeta,sW,sRho,lon_u,lat_v,dti,deltat);;
         }
 
-        // Check the values. 
-        //for (int j= 0; j < eta_u; j++)
-        //    for (int i = 0; i < xi_u; i++)
-        //        printf("%2.4f\n",ut[k*eta_u*xi_u+j*eta_u+i]);
-   
+        printf ("Count\n");
+
+        for (unsigned int p=0;p<particles.size();p++) {
+            Particle *particle=particles[p];
+            particle->count(mask_rho,conc);
+        } 
     }
 
     printf ("Latest particle id: %d\n",particleCount);
+
+    std::ofstream myfile;
+    myfile.open ("restart.csv");
+    myfile << "id;k;j;i;health" << endl;
+    for (unsigned int p=0;p<particles.size();p++) {
+        Particle *particle=particles[p];
+        particle->write(myfile);
+    }
+    myfile.close();
 
     delete _akt;
     delete _conc;
