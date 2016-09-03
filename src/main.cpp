@@ -19,7 +19,67 @@ using namespace netCDF::exceptions;
 // Return this in event of a problem.
 static const int NC_ERR = 2;
 
+
+
+NcFile *createNetCDF(string file_name,double2d mask_rho, double2d lat_rho, double2d lon_rho, double1d s_rho) {
+    // Names of things. 
+    string  UNITS = "units";
+    string  DEGREES_EAST = "degrees_east";
+    string DEGREES_NORTH = "degrees_north";
+    string XI_RHO_NAME="xi_rho";
+    string ETA_RHO_NAME="eta_rho";
+    string S_RHO_NAME="s_rho";
+    string OCEAN_TIME_NAME="ocean_time";
+    string LAT_RHO_NAME = "lat_rho";
+    string LON_RHO_NAME ="lon_rho";
+    string MASK_RHO_NAME ="mask_rho";
+    string CONC_NAME ="conc";
+
+
+    try {
+        NcFile *sfc=new NcFile(file_name, NcFile::replace);
+
+        NcDim oceanTimeDim = sfc->addDim(OCEAN_TIME_NAME);
+        NcDim sRhoDim = sfc->addDim(S_RHO_NAME, s_rho.shape()[0]);
+        NcDim etaRhoDim = sfc->addDim(ETA_RHO_NAME, lat_rho.shape()[0]);
+        NcDim xiRhoDim = sfc->addDim(XI_RHO_NAME, lon_rho.shape()[1]);
+
+        NcVar oceanTimeVar = sfc->addVar(OCEAN_TIME_NAME, ncDouble, oceanTimeDim);
+
+        NcVar sRhoVar = sfc->addVar(S_RHO_NAME, ncDouble, sRhoDim);
+        sRhoVar.putVar(s_rho.data());
+
+        vector<NcDim> etaRhoXiRhoDims;
+        etaRhoXiRhoDims.push_back(etaRhoDim);
+        etaRhoXiRhoDims.push_back(xiRhoDim);
+        NcVar latRhoVar = sfc->addVar(LAT_RHO_NAME, ncDouble, etaRhoXiRhoDims);
+        NcVar lonRhoVar = sfc->addVar(LON_RHO_NAME, ncDouble, etaRhoXiRhoDims); 
+        NcVar maskRhoVar = sfc->addVar(MASK_RHO_NAME, ncDouble, etaRhoXiRhoDims);
+    
+        latRhoVar.putVar(lat_rho.data());
+        lonRhoVar.putVar(lon_rho.data());
+        maskRhoVar.putVar(mask_rho.data());
+
+        lonRhoVar.putAtt(UNITS,DEGREES_EAST);
+        latRhoVar.putAtt(UNITS,DEGREES_NORTH);
+
+        vector<NcDim> oceanTimeSRhoEtaRhoXiRhoDims;
+        oceanTimeSRhoEtaRhoXiRhoDims.push_back(oceanTimeDim);
+        oceanTimeSRhoEtaRhoXiRhoDims.push_back(sRhoDim);
+        oceanTimeSRhoEtaRhoXiRhoDims.push_back(etaRhoDim);
+        oceanTimeSRhoEtaRhoXiRhoDims.push_back(xiRhoDim);
+        NcVar concVar = sfc->addVar(CONC_NAME, ncFloat, oceanTimeSRhoEtaRhoXiRhoDims);
+        return sfc;
+    }
+    catch(NcException& e) {
+        e.what(); 
+        return NULL;
+    }
+}
+
 int main() {
+    boost::minstd_rand intgen;
+    boost::uniform_01<boost::minstd_rand> gen(intgen);
 
     double dti=30;
 
@@ -47,12 +107,12 @@ int main() {
     // Get the value of the member of root named 'encoding', return a 'null' value if
     // there is no such member.
     const Json::Value sources1 = root["sources"];
-    for ( unsigned int index = 0; index < sources1.size(); ++index )  { // Iterates over the sequence elements.
+    for ( unsigned int index = 0; index < sources1.size(); index++ )  { // Iterates over the sequence elements.
         int id=sources1[index].get("id",NULL).asInt();
         float i=sources1[index].get("i",NULL).asFloat();
         float j=sources1[index].get("j",NULL).asFloat();
         float k=sources1[index].get("k",NULL).asFloat();
-        unsigned int partsPerHour=sources1[index].get("partsPerHour",NULL).asFloat();
+        unsigned int partsPerHour=sources1[index].get("partsPerHour",0).asFloat();
         Source *source=new Source(id,i,j,k,partsPerHour);
         sources.push_back(source);
         printf ("Source: %d\n",id);
@@ -63,21 +123,20 @@ int main() {
     float survprob=chm.get("survprob",1.0e-4).asFloat();
     printf ("Input:%s\n",nc_input.c_str());
 
-
     // Open the file for read access
     NcFile dataFile(nc_input, NcFile::read);
    
 
     // Retrieve the variable named "data"
     unsigned int ocean_time = dataFile.getDim("ocean_time").getSize();
-    int s_w        = dataFile.getDim("s_w").getSize();
-    int s_rho      = dataFile.getDim("s_rho").getSize();
-    int eta_u      = dataFile.getDim("eta_u").getSize();
-    int xi_u       = dataFile.getDim("xi_u").getSize();
-    int eta_v      = dataFile.getDim("eta_v").getSize();
-    int xi_v       = dataFile.getDim("xi_v").getSize();
-    int eta_rho    = dataFile.getDim("eta_rho").getSize();
-    int xi_rho     = dataFile.getDim("xi_rho").getSize();
+    unsigned int s_w        = dataFile.getDim("s_w").getSize();
+    unsigned int s_rho      = dataFile.getDim("s_rho").getSize();
+    unsigned int eta_u      = dataFile.getDim("eta_u").getSize();
+    unsigned int xi_u       = dataFile.getDim("xi_u").getSize();
+    unsigned int eta_v      = dataFile.getDim("eta_v").getSize();
+    unsigned int xi_v       = dataFile.getDim("xi_v").getSize();
+    unsigned int eta_rho    = dataFile.getDim("eta_rho").getSize();
+    unsigned int xi_rho     = dataFile.getDim("xi_rho").getSize();
 
     double *_ocean_time=new double[ocean_time];
     double *_s_w=new double[s_w];
@@ -125,7 +184,7 @@ int main() {
     dataLonRho.getVar(_lon_rho);
     double2d lon_rho(_lon_rho, boost::extents[eta_rho][xi_rho]);
 
-    printf ("jj\n");
+    
 
     double *_mask_u=new double[eta_u*xi_u];
     double *_mask_v=new double[eta_v*xi_v];
@@ -165,6 +224,27 @@ int main() {
     float *_conc=new float[s_rho*eta_rho*xi_rho];
     float3d conc(_conc, boost::extents[s_rho][eta_rho][xi_rho]);
 
+
+
+
+
+    NcFile *outputFile=createNetCDF("output.nc4",mask_rho, lat_rho, lon_rho, sRho);
+    NcVar outputOceanTimeVar=outputFile->getVar("ocean_time");
+    NcVar outputConcVar=outputFile->getVar("conc");
+    vector<size_t> startp_ocean_time,startp_conc,countp_ocean_time,countp_conc;
+    startp_ocean_time.push_back(0);
+    countp_ocean_time.push_back(1);
+    startp_conc.push_back(0);
+    startp_conc.push_back(0);
+    startp_conc.push_back(0);
+    startp_conc.push_back(0);
+    countp_conc.push_back(1);
+    countp_conc.push_back(s_rho);
+    countp_conc.push_back(eta_rho);
+    countp_conc.push_back(xi_rho);
+
+
+
     vector<size_t> countp_zeta,countp_u,countp_v,countp_w,countp_akt;
     countp_zeta.push_back(1);
     countp_zeta.push_back(eta_rho);
@@ -199,19 +279,36 @@ int main() {
         for (unsigned int i=0;i<lat_v.shape()[1];i++)
              lat_v[j][i]=0.0174533*lat_v[j][i];
 
+    // Rho interpoted data
+    float *_ucomp=new float[s_rho*eta_v*xi_u];
+    float *_vcomp=new float[s_rho*eta_v*xi_u];
+    float *_wcomp=new float[s_rho*eta_v*xi_u];
+    float *_aktcomp=new float[s_rho*eta_v*xi_u];
+    float3d ucomp(_ucomp,boost::extents[s_rho][eta_v][xi_u]);
+    float3d vcomp(_vcomp,boost::extents[s_rho][eta_v][xi_u]);
+    float3d wcomp(_wcomp,boost::extents[s_rho][eta_v][xi_u]);
+    float3d aktcomp(_aktcomp,boost::extents[s_rho][eta_v][xi_u]);
+
+    ocean_time=4;
     for (unsigned int t=0;t<ocean_time;t++) {
-        printf ("Time: %d/%d\n",(t+1),ocean_time);
+        printf ("Time: %d/%d -- %f -- Particles:",(t+1),ocean_time,oceanTime[t]);
 
         // Add the new particles
         for(unsigned int s=0;s<sources.size();s++) {
             Source *source=sources[s];
             for (unsigned int p=0;p<source->getPartsPerHour();p++) {
-                Particle *particle=new Particle(particleCount,source->getI(),source->getJ(),source->getK(),tau0,survprob);
+                double i=source->getI()+gen()*.5-.25;
+                double j=source->getJ()+gen()*.5-.25;
+                double k=source->getK()+gen()*.5-.25;
+                if (k<0) k=0;
+                if (j<0) j=0;
+                if (i<0) i=0;
+                Particle *particle=new Particle(particleCount,i,j,k,tau0,survprob);
                 particles.push_back(particle);
                 particleCount++;
             }
         }
-
+        printf("%u\n",(unsigned int)particles.size());
         vector<size_t> startp_zeta,startp;
         startp_zeta.push_back(t);
         startp_zeta.push_back(0);
@@ -233,21 +330,157 @@ int main() {
         float3d w(_w, boost::extents[s_rho][eta_rho][xi_rho]);
         float3d akt(_akt, boost::extents[s_w][eta_rho][xi_rho]);
 
-        printf ("Calc\n");
+        
+        // Interpolate on internal rho points
+        double uw1, uw2;
+        printf("Interpolating: U\n");
+        for (unsigned int k=0; k<s_rho;k++) {
+            for (unsigned int j=0;j<eta_v;j++) {
+                for (unsigned int i=0;i<xi_u;i++) {
+                    if ( mask_rho[j][i] > 0.0 ) {
+                        if ( mask_u[j][i] > 0.0 ) {
+                            uw1=u[k][j][i];
+                        } else {
+                            uw1=0.0;
+                        }
+                        if ( j>0 && mask_u[j-1][i]> 0.0 ) {
+                            uw2=u[k][j-1][i];
+                        } else {
+                            uw2=0.0;
+                        }
 
-        for (unsigned int p=0;p<particles.size();p++) {
-            Particle *particle=particles[p];
-            particle->move(u,v,w,akt,mask_u,mask_v,mask_rho,conc,zeta,sW,sRho,lon_u,lat_v,dti,deltat);;
+                        ucomp[k][j][i]=0.5*(uw1+uw2);
+                    } else {  
+                        ucomp[k][j][i]=0.0;
+                    }
+                }
+            }
         }
 
-        printf ("Count\n");
+        double vw1,vw2;
+        printf("Interpolating V\n");
+        for (unsigned int k=0; k<s_rho;k++) {
+            for (unsigned int j=0;j<eta_v;j++) {
+                for (unsigned int i=0;i<xi_u;i++) {
+                    if ( mask_rho[j][i] > 0.0 ) {
+                        if ( mask_v[j][i] > 0.0 ) {
+                            vw1=v[k][j][i];
+                        } else {
+                            vw1=0.0;
+                        }
 
+                        if ( i>0 && mask_v[j][i-1]> 0.0 ) {
+                            vw2=u[k][j][i-1];
+                        } else {
+                            vw2=0.0;
+                        }
+
+                        vcomp[k][j][i]=0.5*(vw1+vw2);
+                    } else {
+                        vcomp[k][j][i]=0.0;
+                    }
+                }
+            }
+	}
+
+        double u1,u2,u3;
+        printf("Interpolating W\n");
+        for (unsigned int k=0; k<s_rho;k++) {
+            for (unsigned int j=0;j<eta_v;j++) {
+                for (unsigned int i=0;i<xi_u;i++) {
+                    if ( mask_rho[j][i] > 0.0 ) {
+                        if ( i>0 && mask_rho[j][i-1] > 0.0 ) { 
+                             u1=w[k][j][i-1];
+                        } else {
+                             u1=0;
+                        }
+
+                        if ( j>0 && mask_rho[j-1][i]> 0.0 ) {
+                             u2=w[k][j-1][i];
+                        } else {
+                             u2=0.0;
+                        }
+
+                        if ( j>0 && i>0 && mask_rho[j-1][i-1]> 0.0 ) {
+                            u3=w[k][j-1][i-1];
+                        } else {
+                            u3=0.0;
+                        }
+
+                        wcomp[k][j][i]=0.25*(u1+u2+u3+w[k][j][i]);
+                    } else {
+                        wcomp[k][j][i]=0.0;
+                    }
+                }
+            }
+	}
+
+        printf("Interpolating AKT\n");
+        for (unsigned int k=0; k<s_rho;k++) {
+            for (unsigned int j=0;j<eta_v;j++) {
+                for (unsigned int i=0;i<xi_u;i++) {
+                    if ( mask_rho[j][i] > 0.0 ) {
+                        if ( i>0 && mask_rho[j][i-1] > 0.0 ) {
+                             u1=akt[k][j][i-1];
+                        } else {
+                             u1=0;
+                        }
+
+                        if ( j>0 && mask_rho[j-1][i]> 0.0 ) {
+                             u2=akt[k][j-1][i];
+                        } else {
+                             u2=0.0;
+                        }
+
+                        if ( j>0 && i>0 && mask_rho[j-1][i-1]> 0.0 ) {
+                            u3=akt[k][j-1][i-1];
+                        } else {
+                            u3=0.0;
+                        }
+
+                        aktcomp[k][j][i]=0.25*(u1+u2+u3+akt[k][j][i]);
+                    } else {
+                        aktcomp[k][j][i]=0.0;
+                    }
+                }
+            }
+	}
+
+        double *_depth=new double[s_rho+1];
+        for (unsigned int k=0;k<=s_rho;k++) {
+            //printf("k:%u\n",k);
+            if (k<s_rho)
+            _depth[k]=sW[k+1]-sW[k];
+            else _depth[k]=_depth[k-1];
+            //printf("_depth[%u]=%f\n",k,_depth[k]);
+        }
+        double1d depth(_depth,boost::extents[s_rho+1]);
+        
+        printf ("Calc\n");
+        // The particles could be distributed with mpi
         for (unsigned int p=0;p<particles.size();p++) {
             Particle *particle=particles[p];
-            particle->count(mask_rho,conc);
-        } 
-    }
+            particle->move(ucomp,vcomp,wcomp,aktcomp,mask_u,mask_v,mask_rho,zeta,depth,lon_u,lat_v,dti,deltat);
+        }
 
+        printf ("Count:");
+        vector<Particle*>::iterator it = particles.begin();
+
+        while(it != particles.end()) {
+            Particle *particle=*it;
+            if (particle->count(mask_rho,conc)==false) {
+                delete particle;
+                it = particles.erase(it);
+            }
+            else ++it;
+        }
+        startp_ocean_time[0]=t;
+        outputOceanTimeVar.putVar(startp_ocean_time,countp_ocean_time,&oceanTime[t]);
+        startp_conc[0]=t;
+        outputConcVar.putVar(startp_conc,countp_conc,conc.data());
+        printf ("%u\n",(unsigned int)particles.size());
+    }
+    outputFile->close();
     printf ("Latest particle id: %d\n",particleCount);
 
     std::ofstream myfile;
@@ -259,6 +492,10 @@ int main() {
     }
     myfile.close();
 
+    delete _wcomp;
+    delete _vcomp;
+    delete _ucomp;
+    delete _aktcomp;
     delete _akt;
     delete _conc;
     delete _w;
