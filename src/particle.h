@@ -28,8 +28,8 @@ class Particle {
         float getHealth(); 
         float getPStatus();
         void write(std::ofstream&);
-        void move(float3d, float3d, float3d, float3d,double2d, double2d, double2d,float3d conc,float2d zeta,double1d s_w,double1d s_rho,double2d lon_u,double2d lat_v,double dti, double deltat);
-        void count(double2d, float3d);
+        void move(float3d, float3d, float3d, float3d,double2d, double2d, double2d,float2d zeta,double1d depth,double2d lon_u,double2d lat_v,double dti, double deltat);
+        bool count(double2d, float3d&);
 };
 
 #endif
