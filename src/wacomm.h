@@ -3,7 +3,8 @@
 
 
 #include <boost/multi_array.hpp>
-
+#include <boost/random/linear_congruential.hpp>
+#include <boost/random/uniform_01.hpp>
 
 typedef boost::multi_array_ref<float, 1> float1d;
 typedef boost::multi_array_ref<float, 2> float2d;
